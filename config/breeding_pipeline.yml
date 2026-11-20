@@ -1,0 +1,13 @@
+schema_version: 1
+sample_missing_max: 0.50
+predictor_qc: {maf_min: 0.01, marker_missing_max: 0.40, marker_heterozygosity_max: 0.05, min_mac: 0}
+analysis_qc: {maf_min: 0.05, marker_missing_max: 0.40, marker_heterozygosity_max: 0.05, min_mac: 0}
+imputation: {ld: 60, k: 20, maximum_residual_fraction: 0.02}
+model: {block_size: 16, max_ld_sites: 60, max_distance_bp: 10000000, chromosome_policy: tassel_position_only}
+resources: {global_cpu_budget: 1, reserved_cpus: 0, workers: 1, worker_threads: 1, reported_ram_gb: 8, memory_budget_gib: 2}
+learners:
+  elastic_net: {alpha: 0.5, lambda_ratio: 0.1}
+  gaussian_rkhs: {gamma: 1, lambda: 1}
+  random_forest: {mtry_ratio: 0.2, min_node_size: 5, sample_fraction: 0.8, max_depth: 0, num_trees: 500}
+  xgboost: {eta: 0.05, max_depth: 3, min_child_weight: 5, subsample: 0.8, colsample_bytree: 0.8, lambda: 10, alpha: 0.01, gamma: 0, nrounds: 200}
+GWAS: {n_pcs: 2, include_source_group: true, models: [MLM, FarmCPU, BLINK]}

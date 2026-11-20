@@ -1,0 +1,22 @@
+# Input and output paths are relative to the extracted pipeline folder.
+reference: input/reference.hmp.txt.gz
+phenotypes: input/phenotypes.csv
+output: results/first_run
+
+# Change these for your panel. Leave traits out to run every trait in the file.
+traits: [EarHT]
+unit: trait units
+# sample_metadata: input/sample_metadata.tsv
+gp: [gblup_reml, elastic_net, random_forest, xgboost, gaussian_rkhs]
+gwas: [MLM, FarmCPU, BLINK]
+gwas_candidates: 10
+assessment_fraction: 0.25
+model_config: config/breeding_pipeline.yml
+
+# The explanation step can use a subset of the saved GP learners.
+explain_learners: [gblup_reml, elastic_net, random_forest, xgboost, gaussian_rkhs]
+# Use ld to estimate SHAP group distances from each discovery panel.
+explain_grouping: coordinate
+# explain_ld: {scope: chromosome, decay_r2: 0.20, group_r2: 0.20, max_distance_bp: 50000000}
+validate_imputation: true
+export_imputed: true
