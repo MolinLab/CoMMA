@@ -1,0 +1,16 @@
+# Local inputs, results and R libraries
+/input/
+/data/
+/results/
+/vendor/
+/.breeding-library/
+/.renv/
+/renv/library/
+/.r_user/
+/.tmp/
+/.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+Rplots.pdf
+*.log
