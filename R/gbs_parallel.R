@@ -41,9 +41,10 @@ gbs_parallel_task <- function(task, context, worker, directory, fingerprint) {
   value
 }
 
-gbs_parallel_map <- function(tasks, worker, context, allocation, checkpoint, fingerprint) {
+gbs_parallel_map <- function(tasks, worker_name, context, allocation, checkpoint, fingerprint) {
   directory <- gbs_project_path(checkpoint, must_exist = FALSE)
   dir.create(directory, recursive = TRUE, showWarnings = FALSE)
+  worker <- get(worker_name, mode = "function")
   # Workers never receive genotype truth ledgers or phenotype tables.
   execute <- function(task) gbs_parallel_task(task, context, worker, directory, fingerprint)
   if (allocation$workers == 1L) result <- lapply(tasks, execute) else if (.Platform$OS.type != "windows") {
@@ -52,23 +53,29 @@ gbs_parallel_map <- function(tasks, worker, context, allocation, checkpoint, fin
   } else {
     executable <- Sys.getenv("GWAS_R_EXECUTABLE")
     if (!nzchar(executable)) stop("Use the authorized project R launcher for Windows worker tests.")
-    # The project authorizes R.exe rather than Rscript.exe. R.exe needs --args
-    # before the worker connection parameters; its first -e starts the worker.
-    cluster <- parallel::makePSOCKcluster(allocation$workers, rscript = executable,
+    # R.exe uses its startup packages and reads the worker connection settings after --args.
+    cluster <- parallel::makePSOCKcluster(allocation$workers, rscript = executable, methods = FALSE,
       rscript_args = c("--vanilla", "--slave", "-e", shQuote("parallel:::.workRSOCK()"), "--args"),
       setup_timeout = 30, outfile = file.path(directory, "workers.log"))
     on.exit(parallel::stopCluster(cluster), add = TRUE)
-    parallel::clusterCall(cluster, function(root, paths, libraries) {
+    initialize_worker <- function(root, paths, libraries) {
       setwd(root); .libPaths(libraries)
       Sys.setenv(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
       data.table::setDTthreads(1L)
       for (path in paths) sys.source(path, envir = .GlobalEnv)
       NULL
-    }, getwd(), gbs_parallel_sources(), .libPaths())
+    }
+    environment(initialize_worker) <- baseenv()
+    parallel::clusterCall(cluster, initialize_worker, getwd(), gbs_parallel_sources(), .libPaths())
     # Export the immutable context once, rather than once per marker block.
-    parallel::clusterExport(cluster, c("context", "worker", "directory", "fingerprint"), envir = environment())
-    result <- parallel::parLapply(cluster, tasks, function(task)
-      gbs_parallel_task(task, context, worker, directory, fingerprint))
+    parallel::clusterExport(cluster, c("context", "worker_name", "directory", "fingerprint"), envir = environment())
+    # Resolve the sourced block function on the worker to keep the analysis environment out of the task.
+    run_task <- function(task) {
+      worker <- get(worker_name, envir = .GlobalEnv, mode = "function")
+      gbs_parallel_task(task, context, worker, directory, fingerprint)
+    }
+    environment(run_task) <- globalenv()
+    result <- parallel::parLapply(cluster, tasks, run_task)
   }
   if (length(result) != length(tasks) || any(vapply(result, function(x) is.null(x) || inherits(x, "try-error"), logical(1L)))) stop("A parallel task failed; incomplete results cannot be scored.")
   result
@@ -131,7 +138,7 @@ fit_gbs_tassel_parallel <- function(reference, markers, settings, resources, tar
     policy=settings$chromosome_policy,max_ld=settings$max_ld_sites)
   started<-proc.time()
   cat("LD:",nrow(reference),"lines,",ncol(reference),"predictors,",length(targets),"target SNPs;",allocation$workers,"workers.\n");flush.console()
-  results<-gbs_parallel_map(tasks,gbs_parallel_ld_block,context,allocation,checkpoint,fingerprint)
+  results<-gbs_parallel_map(tasks,"gbs_parallel_ld_block",context,allocation,checkpoint,fingerprint)
   neighbours<-r2<-vector("list",ncol(reference));ties<-logical(ncol(reference))
   names(neighbours)<-names(r2)<-map$marker_id
   for(result in results) {neighbours[result$indices]<-result$neighbours;r2[result$indices]<-result$r2;ties[result$indices]<-result$ties}
@@ -198,7 +205,7 @@ predict_gbs_targets_parallel <- function(model,query,target_cells,grid,resources
   fingerprint<-digest::digest(list(model$provenance$fingerprint,digest::digest(query,algo="sha256"),target,grid,
     digest::digest(file="R/gbs_parallel.R",algo="sha256")),algo="sha256")
   cat("Masked predictions:",nrow(target),"cells,",nrow(grid),"settings;",allocation$workers,"workers.\n");flush.console()
-  results<-gbs_parallel_map(tasks,gbs_parallel_predict_block,list(model=model,query=query,targets=target,grid=grid),allocation,checkpoint,fingerprint)
+  results<-gbs_parallel_map(tasks,"gbs_parallel_predict_block",list(model=model,query=query,targets=target,grid=grid),allocation,checkpoint,fingerprint)
   list(targets=do.call(rbind,lapply(results,`[[`,"targets")),prediction=do.call(rbind,lapply(results,`[[`,"prediction")),
     allocation=allocation,truth_values_received=FALSE,fingerprint=fingerprint)
 }
